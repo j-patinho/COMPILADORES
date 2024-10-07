@@ -1,21 +1,19 @@
 import re
 
 # Definir las palabras clave y operadores en un lenguaje de programación simple
-palabras_clave = {"if", "else", "while", "for", "return", "int", "float", "void"}
+palabras_clave = {"if", "else", "while", "for", "return", "int", "float", "void", "print", "input"}
 operadores = {'+', '-', '*', '/', '=', '==', '!=', '<', '>', '<=', '>='}
 separadores = {'(', ')', '{', '}', '[', ']', ';', ','}
 
 # Expresiones regulares para identificar tipos de tokens
 token_regex = {
     "palabra_clave": r'\b(?:' + '|'.join(palabras_clave) + r')\b',
-    # Identificadores con caracteres acentuados y la ñ
     "identificador": r'[a-zA-Z_áéíóúÁÉÍÓÚñÑ][a-zA-Z_0-9áéíóúÁÉÍÓÚñÑ]*',
     "numero": r'\b\d+(\.\d+)?\b',
     "operador": r'(?:' + '|'.join(map(re.escape, operadores)) + r')',
     "separador": r'(?:' + '|'.join(map(re.escape, separadores)) + r')',
-    # Comentarios que comienzan con #
     "comentario": r'#.*',
-    "cadena": r'"(?:\\.|[^"\\])*"'
+    "cadena": r'"(?:\\.|[^"\\])*"|\'(?:\\.|[^\'\\])*\''
 }
 
 # Diccionario para almacenar los tokens clasificados
@@ -29,6 +27,21 @@ tokens_categorizados = {
     "Cadena": set(),
     "Error léxico": set()
 }
+
+# Clase para representar un nodo del árbol de sintaxis
+class NodoAST:
+    def __init__(self, valor, hijos=None):
+        self.valor = valor
+        self.hijos = hijos if hijos else []
+
+    def agregar_hijo(self, hijo):
+        self.hijos.append(hijo)
+
+    def __repr__(self, nivel=0):
+        ret = "\t" * nivel + repr(self.valor) + "\n"
+        for hijo in self.hijos:
+            ret += hijo.__repr__(nivel + 1)
+        return ret
 
 # Función para categorizar y almacenar los tokens en el diccionario
 def categorizar_token(token, tipo):
@@ -45,7 +58,7 @@ def tokenizar(codigo):
         (token_regex["separador"], lambda scanner, token: ("Separador", token)),
         (token_regex["cadena"], lambda scanner, token: ("Cadena", token)),
         (r'\s+', None),
-        (r'.', lambda scanner, token: ("Error léxico", token))  # Cualquier cosa no reconocida es un error
+        (r'.', lambda scanner, token: ("Error léxico", token))
     ])
     tokens, _ = scanner.scan(codigo)
     return tokens
@@ -53,9 +66,58 @@ def tokenizar(codigo):
 # Función para mostrar los tokens agrupados por categoría
 def mostrar_tokens_categorizados():
     for categoria, tokens in tokens_categorizados.items():
-        if tokens:  # Imprimir solo si hay tokens en esa categoría
+        if tokens:
             print(f"{categoria}: {', '.join(sorted(tokens))}")
-            print()  # Espacio entre categorías
+            print()
+
+# Función para generar el árbol de sintaxis a partir de los tokens
+def generar_arbol_sintactico(tokens):
+    print("\nGenerando Árbol de Sintaxis...")
+    raiz = NodoAST("Programa")
+
+    i = 0
+    while i < len(tokens):
+        tipo, valor = tokens[i]
+
+        # Manejo de asignaciones
+        if tipo == "Identificador" and i + 1 < len(tokens) and tokens[i + 1][1] == "=":
+            asignacion = NodoAST("Asignación")
+            variable = NodoAST(f"Variable: {valor}")
+            asignacion.agregar_hijo(variable)
+
+            i += 2  # Saltar el identificador y el '='
+            tipo_siguiente, valor_siguiente = tokens[i]
+            if tipo_siguiente in ["Número", "Identificador", "Cadena"]:
+                valor_nodo = NodoAST(f"Valor: {valor_siguiente}")
+                asignacion.agregar_hijo(valor_nodo)
+            elif tipo_siguiente == "Palabra clave" and valor_siguiente in {"input", "float"}:
+                funcion_nodo = NodoAST(f"Llamada a función: {valor_siguiente}")
+                asignacion.agregar_hijo(funcion_nodo)
+
+            raiz.agregar_hijo(asignacion)
+
+        # Manejo de funciones como input() y print()
+        elif tipo == "Palabra clave" and valor in {"input", "print"}:
+            funcion_nodo = NodoAST(f"Llamada a función: {valor}")
+            i += 1  # Saltar la palabra clave
+
+            if i < len(tokens) and tokens[i][1] == "(":
+                i += 1  # Saltar el '('
+                while i < len(tokens) and tokens[i][1] != ")":
+                    if tokens[i][0] in ["Número", "Identificador", "Cadena"]:
+                        argumento = NodoAST(f"Argumento: {tokens[i][1]}")
+                        funcion_nodo.agregar_hijo(argumento)
+                    i += 1
+                raiz.agregar_hijo(funcion_nodo)
+
+        elif tipo == "Comentario":
+            comentario = NodoAST(f"Comentario: {valor}")
+            raiz.agregar_hijo(comentario)
+
+        i += 1
+
+    # Mostrar el árbol de sintaxis generado
+    print(raiz)
 
 # Función principal para leer el código y procesarlo
 def analizador_lexico():
@@ -69,12 +131,15 @@ def analizador_lexico():
         codigo += linea + "\n"
         linea_anterior = linea
         linea = input()
+    
     tokens = tokenizar(codigo)
     for tipo, valor in tokens:
         categorizar_token(valor, tipo)
 
-    # Mostrar los tokens agrupados por categoría
     mostrar_tokens_categorizados()
+
+    # Generar el árbol de sintaxis después del análisis léxico
+    generar_arbol_sintactico(tokens)
 
 # Función para mostrar el menú y manejar las opciones del usuario
 def mostrar_menu():
@@ -86,7 +151,6 @@ def mostrar_menu():
         opcion = input("Seleccione una opción: ")
         
         if opcion == "1":
-            # Reiniciar el diccionario de tokens antes de cada análisis
             global tokens_categorizados
             tokens_categorizados = {
                 "Palabra clave": set(),
