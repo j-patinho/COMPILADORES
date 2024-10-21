@@ -1,5 +1,4 @@
 import re
-import tkinter as tk
 
 # Definir las palabras clave y operadores en un lenguaje de programación simple
 palabras_clave = {"if", "else", "while", "for", "return", "int", "float", "void", "print", "input"}
@@ -38,6 +37,16 @@ class NodoAST:
     def agregar_hijo(self, hijo):
         self.hijos.append(hijo)
 
+    def __repr__(self, nivel=0, prefijo=""):
+        ret = prefijo + repr(self.valor) + "\n"
+        if self.hijos:
+            for i, hijo in enumerate(self.hijos):
+                if i == len(self.hijos) - 1:  # Si es el último hijo
+                    ret += hijo.__repr__(nivel + 1, prefijo + "    └─ ")
+                else:  # Si no es el último hijo
+                    ret += hijo.__repr__(nivel + 1, prefijo + "    ├─ ")
+        return ret
+
 # Función para categorizar y almacenar los tokens en el diccionario
 def categorizar_token(token, tipo):
     tokens_categorizados[tipo].add(token)
@@ -58,13 +67,14 @@ def tokenizar(codigo):
     tokens, _ = scanner.scan(codigo)
     return tokens
 
-# Función para mostrar los tokens categorizados
+# Función para mostrar los tokens agrupados por categoría
 def mostrar_tokens_categorizados():
-    print("\nTokens Categorizados:")
-    for tipo, tokens in tokens_categorizados.items():
-        print(f"{tipo}: {', '.join(tokens)}")
+    for categoria, tokens in tokens_categorizados.items():
+        if tokens:
+            print(f"{categoria}: {', '.join(sorted(tokens))}")
+            print()
 
-# Función para generar el árbol de sintaxis a partir de los tokens
+# Función para realizar el análisis sintáctico (construcción del árbol)
 def generar_arbol_sintactico(tokens):
     print("\nGenerando Árbol de Sintaxis...")
     raiz = NodoAST("Programa")
@@ -80,27 +90,14 @@ def generar_arbol_sintactico(tokens):
             asignacion.agregar_hijo(variable)
 
             i += 2  # Saltar el identificador y el '='
-            expresion = NodoAST("Expresión")  # Crear un nodo para la expresión
+            tipo_siguiente, valor_siguiente = tokens[i]
+            if tipo_siguiente in ["Número", "Identificador", "Cadena"]:
+                valor_nodo = NodoAST(f"Valor: {valor_siguiente}")
+                asignacion.agregar_hijo(valor_nodo)
+            elif tipo_siguiente == "Palabra clave" and valor_siguiente in {"input", "float"}:
+                funcion_nodo = NodoAST(f"Llamada a función: {valor_siguiente}")
+                asignacion.agregar_hijo(funcion_nodo)
 
-            # Procesar la primera parte de la expresión (número)
-            if i < len(tokens) and tokens[i][0] == "Número":
-                valor_nodo = NodoAST(f"Valor: {tokens[i][1]}")
-                expresion.agregar_hijo(valor_nodo)
-                i += 1  # Saltar el número
-
-            # Procesar operadores y números subsiguientes
-            while i < len(tokens) and tokens[i][0] == "Operador":
-                operador_nodo = NodoAST(f"Operador: {tokens[i][1]}")
-                expresion.agregar_hijo(operador_nodo)
-                i += 1  # Saltar el operador
-
-                if i < len(tokens) and tokens[i][0] == "Número":
-                    valor_nodo = NodoAST(f"Valor: {tokens[i][1]}")
-                    expresion.agregar_hijo(valor_nodo)
-                    i += 1  # Saltar el número
-
-            # Agregar la expresión al nodo de asignación
-            asignacion.agregar_hijo(expresion)
             raiz.agregar_hijo(asignacion)
 
         # Manejo de funciones como input() y print()
@@ -125,31 +122,41 @@ def generar_arbol_sintactico(tokens):
 
     # Mostrar el árbol de sintaxis generado
     print(raiz)
-    mostrar_arbol_grafico(raiz)
+    return raiz
 
-# Función para mostrar el árbol de sintaxis en una ventana gráfica
-def mostrar_arbol_grafico(nodo):
-    ventana = tk.Tk()
-    ventana.title("Árbol de Sintaxis")
+# Función para realizar el análisis semántico
+def analisis_semantico(raiz):
+    print("\nIniciando análisis semántico...")
 
-    canvas = tk.Canvas(ventana)
-    canvas.pack(fill=tk.BOTH, expand=True)
+    variables_declaradas = set()
 
-    dibujar_nodo(canvas, nodo, 400, 30, 200)
-    
-    ventana.mainloop()
+    def recorrer_arbol(nodo):
+        if "Asignación" in nodo.valor:
+            # Verificar que la variable se está declarando
+            variable = nodo.hijos[0].valor.split(":")[1].strip()
+            variables_declaradas.add(variable)
 
-# Función para dibujar nodos en el canvas
-def dibujar_nodo(canvas, nodo, x, y, offset):
-    # Dibujar el nodo
-    canvas.create_text(x, y, text=nodo.valor, tags="node")
+            # Verificar que el valor es consistente
+            valor = nodo.hijos[1].valor.split(":")[1].strip()
+            if valor.isdigit():
+                print(f"Asignación válida: {variable} = {valor} (entero)")
+            elif valor in variables_declaradas:
+                print(f"Asignación válida: {variable} = {valor} (identificador)")
+            else:
+                print(f"Error semántico: La variable '{valor}' no está declarada antes de su uso.")
+        
+        elif "Llamada a función" in nodo.valor:
+            funcion = nodo.valor.split(":")[1].strip()
+            if funcion == "print" or funcion == "input":
+                print(f"Llamada a función válida: {funcion}")
+            else:
+                print(f"Error semántico: La función '{funcion}' no está definida.")
 
-    # Dibujar las líneas hacia los hijos
-    for i, hijo in enumerate(nodo.hijos):
-        nuevo_x = x - offset // (2 ** (y // 30)) + (i * offset // (2 ** (y // 30)))  # Recalcular posición horizontal
-        nuevo_y = y + 50  # Aumentar la posición vertical
-        canvas.create_line(x, y + 10, nuevo_x, nuevo_y - 10)  # Línea hacia el hijo
-        dibujar_nodo(canvas, hijo, nuevo_x, nuevo_y, offset // 2)  # Llamada recursiva para dibujar el hijo
+        for hijo in nodo.hijos:
+            recorrer_arbol(hijo)
+
+    recorrer_arbol(raiz)
+    print("Análisis semántico finalizado.")
 
 # Función principal para leer el código y procesarlo
 def analizador_lexico():
@@ -171,7 +178,10 @@ def analizador_lexico():
     mostrar_tokens_categorizados()
 
     # Generar el árbol de sintaxis después del análisis léxico
-    generar_arbol_sintactico(tokens)
+    arbol = generar_arbol_sintactico(tokens)
+
+    # Realizar el análisis semántico
+    analisis_semantico(arbol)
 
 # Función para mostrar el menú y manejar las opciones del usuario
 def mostrar_menu():
